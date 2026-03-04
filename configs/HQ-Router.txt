@@ -1,0 +1,172 @@
+! ============================================================
+! NOTE: Đây là cấu hình mẫu cho Core Router 1 tại Trụ sở.
+! Các Core Router còn lại có cấu hình tương tự.
+! Chỉ khác biệt ở phần Addressing (Xem file báo cáo).
+! ============================================================
+
+version 15.4
+hostname Router
+
+no ip cef
+no ipv6 cef
+
+spanning-tree mode pvst
+!
+! ==============================
+! TUNNEL INTERFACES (GRE Tunnel)
+! ==============================
+
+interface Tunnel1
+ description GRE to 203.113.18.13
+ ip address 192.168.10.1 255.255.255.252
+ mtu 1476                         ! Giảm MTU do overhead của GRE
+ tunnel source Serial0/1/0        ! Interface nguồn tạo tunnel
+ tunnel destination 203.113.18.13 ! IP public phía remote
+
+interface Tunnel2
+ description GRE to 203.113.18.17
+ ip address 192.168.10.5 255.255.255.252
+ mtu 1476
+ tunnel source Serial0/1/0
+ tunnel destination 203.113.18.17
+
+interface Tunnel5
+ description GRE to 203.113.18.25
+ ip address 192.168.10.17 255.255.255.252
+ mtu 1476
+ tunnel source Serial0/1/0
+ tunnel destination 203.113.18.25
+
+interface Tunnel6
+ description GRE to 203.113.18.29
+ ip address 192.168.10.21 255.255.255.252
+ mtu 1476
+ tunnel source Serial0/1/0
+ tunnel destination 203.113.18.29
+
+interface Tunnel9
+ description GRE to 203.113.18.37
+ ip address 192.168.10.33 255.255.255.252
+ mtu 1476
+ tunnel source Serial0/1/0
+ tunnel destination 203.113.18.37
+
+interface Tunnel10
+ description GRE to 203.113.18.41
+ ip address 192.168.10.37 255.255.255.252
+ mtu 1476
+ tunnel source Serial0/1/0
+ tunnel destination 203.113.18.41
+!
+! ==============================
+! LAN INTERFACES (NAT INSIDE)
+! ==============================
+
+interface GigabitEthernet0/0/0
+ ip address 10.0.10.2 255.255.255.252
+ ip nat inside                   ! Đánh dấu interface phía trong NAT
+
+interface GigabitEthernet0/0/1
+ ip address 10.0.10.14 255.255.255.252
+ ip nat inside
+
+interface GigabitEthernet0/0/2
+ ip address 172.16.70.2 255.255.255.0
+ ip nat inside
+
+ ! HSRP configuration (Gateway dự phòng)
+ standby 170 ip 172.16.70.1      ! Virtual IP cho LAN
+ standby 170 priority 110       ! Router này có priority cao hơn
+ standby 170 preempt            ! Cho phép giành lại quyền Active
+!
+! ==============================
+! WAN INTERFACE (NAT OUTSIDE)
+! ==============================
+
+interface Serial0/1/0
+ ip address 203.113.18.1 255.255.255.252
+ ip nat outside                 ! Interface ra Internet
+
+interface Serial0/1/1
+ no ip address
+ clock rate 2000000
+!
+! ==============================
+! OSPF ROUTING
+! ==============================
+
+router ospf 1
+ router-id 3.3.3.3
+ log-adjacency-changes
+
+ passive-interface GigabitEthernet0/0/2
+ ! Không gửi Hello OSPF ra LAN người dùng
+
+ network 10.0.10.0 0.0.0.3 area 0
+ network 10.0.10.12 0.0.0.3 area 0
+ network 172.16.70.0 0.0.0.255 area 0
+
+ default-information originate
+ ! Quảng bá default route vào OSPF
+!
+! ==============================
+! NAT CONFIGURATION
+! ==============================
+
+ip nat inside source list 1 interface Serial0/1/0 overload
+! PAT (NAT Overload):
+! Các IP match ACL 1 sẽ được NAT ra IP của Serial0/1/0
+! overload = nhiều IP nội bộ dùng chung 1 IP public
+
+!
+! ==============================
+! STATIC ROUTES
+! ==============================
+
+ip route 0.0.0.0 0.0.0.0 203.113.18.2
+! Default route ra ISP
+
+ip route 203.113.18.13 255.255.255.255 203.113.18.2
+! Route đảm bảo reach được đầu remote tunnel
+
+! Route đến các mạng phía remote qua Tunnel
+ip route 10.20.0.0 255.255.0.0 192.168.10.2
+ip route 10.20.0.0 255.255.0.0 192.168.10.6
+
+ip route 10.30.0.0 255.255.0.0 192.168.10.18
+ip route 10.30.0.0 255.255.0.0 192.168.10.22
+
+ip route 10.100.0.0 255.255.0.0 192.168.10.34
+ip route 10.100.0.0 255.255.0.0 192.168.10.38
+!
+! ==============================
+! NETFLOW EXPORT
+! ==============================
+
+ip flow-export version 9
+!
+! ==============================
+! ACCESS CONTROL LIST (ACL)
+! ==============================
+
+access-list 1 permit 10.10.0.0 0.0.255.255
+! Cho phép dải 10.10.0.0/16 được NAT
+
+access-list 1 permit 172.16.70.0 0.0.0.255
+! Cho phép LAN 172.16.70.0/24 được NAT
+
+! Lưu ý:
+! Chỉ các mạng match ACL 1 mới được NAT ra Internet
+!
+! ==============================
+! LINE CONFIGURATION
+! ==============================
+
+line con 0
+
+line aux 0
+
+line vty 0 4
+ login
+!
+end
