@@ -1,0 +1,144 @@
+! ============================================================
+! NOTE: Đây là cấu hình mẫu cho Distributed Switch 1 tại Trụ sở.
+! Các Distributed Switch còn lại có cấu hình tương tự.
+! Chỉ khác biệt ở phần Addressing.
+! ============================================================
+
+!
+! =========================================================
+! GLOBAL CONFIGURATION
+! =========================================================
+
+version 16.3.2
+hostname HQ-DIST-SW1
+
+no ip cef
+no ipv6 cef
+ip routing                     ! Bật Layer 3 routing trên switch L3
+
+spanning-tree mode pvst
+
+! Cấu hình Root Bridge theo VLAN (STP Load Balancing)
+spanning-tree vlan 10,30,99 priority 24576
+spanning-tree vlan 20,40,50 priority 28672
+! VLAN 10,30,99 → SW1 ưu tiên làm Root
+! VLAN 20,40,50 → Có thể SW2 sẽ là Root (thiết kế cân bằng tải STP)
+
+!
+! =========================================================
+! TRUNK LINKS (TO ACCESS / CORE)
+! =========================================================
+
+interface range GigabitEthernet1/0/1 - 1/0/4
+ description Uplink Trunk
+ switchport mode trunk
+
+interface GigabitEthernet1/0/5
+ description Trunk with Native VLAN 99
+ switchport trunk native vlan 99
+ switchport mode trunk
+
+interface range GigabitEthernet1/0/6 - 1/0/10
+ description Additional Trunks
+ switchport mode trunk
+
+!
+! =========================================================
+! LAYER 3 P2P LINKS (TO CORE/ROUTER)
+! =========================================================
+
+interface GigabitEthernet1/0/11
+ description P2P to Core/Router-1
+ no switchport
+ ip address 10.0.10.1 255.255.255.252
+
+interface GigabitEthernet1/0/12
+ description P2P to Core/Router-2
+ no switchport
+ ip address 10.0.10.5 255.255.255.252
+
+!
+! =========================================================
+! SVI – VLAN GATEWAYS
+! =========================================================
+! Mỗi VLAN dùng HSRP để HA Gateway
+
+interface Vlan10
+ description USERS VLAN
+ ip address 10.10.10.2 255.255.255.0
+ ip helper-address 172.16.70.10      ! DHCP Relay đến DHCP Server
+ standby 10 ip 10.10.10.1
+ standby 10 preempt                  ! Tự động giành lại vai trò Active
+
+interface Vlan20
+ description FINANCE VLAN
+ ip address 10.10.20.2 255.255.255.0
+ ip helper-address 172.16.70.10
+ standby 20 ip 10.10.20.1
+ standby 20 priority 90              ! Có thể là Secondary
+
+interface Vlan30
+ description HR VLAN
+ ip address 10.10.30.2 255.255.255.0
+ ip helper-address 172.16.70.10
+ standby 30 ip 10.10.30.1
+ standby 30 preempt
+
+interface Vlan40
+ description SERVER VLAN
+ ip address 10.10.40.2 255.255.255.0
+ standby 40 ip 10.10.40.1
+ standby 40 priority 90
+
+interface Vlan50
+ description MANAGEMENT VLAN
+ ip address 10.10.50.2 255.255.255.0
+ ip helper-address 172.16.70.10
+ standby 50 ip 10.10.50.1
+ standby 50 priority 90
+
+interface Vlan99
+ description NATIVE / INFRA VLAN
+ ip address 10.10.99.2 255.255.255.0
+ standby 99 ip 10.10.99.1
+ standby 99 preempt
+
+!
+! =========================================================
+! OSPF CONFIGURATION
+! =========================================================
+
+router ospf 1
+ router-id 1.1.1.1
+ log-adjacency-changes
+
+ passive-interface default
+ ! Tất cả interface mặc định passive (best practice L3 switch)
+
+ no passive-interface GigabitEthernet1/0/11
+ no passive-interface GigabitEthernet1/0/12
+ ! Chỉ hình thành adjacency trên link P2P lên Core
+
+ network 10.0.10.0 0.0.0.3 area 0
+ network 10.0.10.4 0.0.0.3 area 0
+ network 10.10.0.0 0.0.255.255 area 0
+ ! Quảng bá toàn bộ VLAN SVI vào Area 0
+
+!
+! =========================================================
+! NETFLOW
+! =========================================================
+
+ip flow-export version 9
+
+!
+! =========================================================
+! MANAGEMENT ACCESS
+! =========================================================
+
+line con 0
+line aux 0
+line vty 0 4
+ login
+
+end
